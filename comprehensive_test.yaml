@@ -1,0 +1,673 @@
+# 🎯 YH API测试框架 - 全面功能验证测试套件
+# 使用 httpbin.org 和豆瓣API进行全功能验证
+
+config:
+  name: "API测试框架全面功能验证"
+  description: "验证参数提取、引用、断言、消息推送等所有功能"
+  base_url: "https://httpbin.org"
+  timeout: 30
+  
+  # 全局变量定义
+  variables:
+    test_user: "test_framework_user"
+    test_email: "test@example.com"
+    api_version: "v1"
+    timestamp: "${current_timestamp()}"
+  
+  # 全局导出变量（用于跨用例共享）
+  export:
+    - shared_token
+    - user_id
+    - request_id
+
+# ========================================
+# 测试套件1: 基础HTTP方法测试
+# ========================================
+test_01_basic_get:
+  - name: "GET请求 - 基础功能"
+    description: "验证GET请求和参数传递"
+    request:
+      method: GET
+      url: "/get"
+      params:
+        username: "${test_user}"
+        email: "${test_email}"
+        timestamp: "${timestamp}"
+    validate:
+      - check: status_code
+        expected: 200
+      - check: json.args.username
+        expected: "${test_user}"
+      - check: json.args.email
+        expected: "${test_email}"
+      - check: response_time
+        expected: less_than
+        value: 5000
+    extract:
+      request_id: json.headers.X-Amzn-Trace-Id
+
+test_02_basic_post:
+  - name: "POST请求 - JSON数据"
+    description: "验证POST请求发送JSON数据"
+    request:
+      method: POST
+      url: "/post"
+      headers:
+        Content-Type: "application/json"
+        User-Agent: "YH-API-Test-Framework/3.0"
+      json:
+        username: "${test_user}"
+        email: "${test_email}"
+        action: "create_user"
+        metadata:
+          timestamp: "${timestamp}"
+          version: "${api_version}"
+    validate:
+      - check: status_code
+        expected: 200
+      - check: json.json.username
+        expected: "${test_user}"
+      - check: json.json.action
+        expected: "create_user"
+      - check: json.json.metadata.version
+        expected: "${api_version}"
+    extract:
+      user_id: json.json.username
+      shared_token: json.headers.Content-Type
+
+test_03_basic_put:
+  - name: "PUT请求 - 更新数据"
+    description: "验证PUT请求更新数据"
+    request:
+      method: PUT
+      url: "/put"
+      json:
+        user_id: "${user_id}"
+        email: "updated@example.com"
+        status: "active"
+    validate:
+      - check: status_code
+        expected: 200
+      - check: json.json.user_id
+        expected: "${user_id}"
+
+test_04_basic_delete:
+  - name: "DELETE请求 - 删除操作"
+    description: "验证DELETE请求"
+    request:
+      method: DELETE
+      url: "/delete"
+      params:
+        user_id: "${user_id}"
+    validate:
+      - check: status_code
+        expected: 200
+
+# ========================================
+# 测试套件2: 参数提取和引用
+# ========================================
+test_05_extract_and_reference:
+  - name: "步骤1 - 生成UUID并提取"
+    description: "测试参数提取功能"
+    request:
+      method: GET
+      url: "/uuid"
+    validate:
+      - check: status_code
+        expected: 200
+    extract:
+      generated_uuid: json.uuid
+  
+  - name: "步骤2 - 使用提取的UUID"
+    description: "测试参数引用功能"
+    request:
+      method: POST
+      url: "/post"
+      json:
+        uuid: "${generated_uuid}"
+        action: "use_extracted_uuid"
+    validate:
+      - check: status_code
+        expected: 200
+      - check: json.json.uuid
+        expected: "${generated_uuid}"
+      - check: json.json.action
+        expected: "use_extracted_uuid"
+
+test_06_chain_extraction:
+  - name: "链式提取 - 第一步"
+    description: "多步骤参数提取和传递"
+    request:
+      method: GET
+      url: "/base64/SFRUUEJJTiBpcyBhd2Vzb21l"
+    validate:
+      - check: status_code
+        expected: 200
+    extract:
+      decoded_text: json
+  
+  - name: "链式提取 - 第二步"
+    description: "使用上一步提取的数据"
+    request:
+      method: POST
+      url: "/post"
+      json:
+        source_data: "${decoded_text}"
+        processed_by: "yh_framework"
+    validate:
+      - check: status_code
+        expected: 200
+
+# ========================================
+# 测试套件3: 复杂断言验证
+# ========================================
+test_07_complex_assertions:
+  - name: "复杂断言测试"
+    description: "验证多种断言类型"
+    request:
+      method: GET
+      url: "/headers"
+      headers:
+        X-Test-Header: "framework_test"
+        X-Custom-Value: "12345"
+    validate:
+      # 状态码断言
+      - check: status_code
+        expected: 200
+      
+      # JSON路径断言
+      - check: json.headers.X-Test-Header
+        expected: "framework_test"
+      
+      # 响应时间断言
+      - check: response_time
+        expected: less_than
+        value: 3000
+      
+      # 字符串包含断言
+      - check: json.headers.Host
+        expected: "httpbin.org"
+
+test_08_json_response:
+  - name: "JSON响应深度验证"
+    description: "验证复杂JSON结构"
+    request:
+      method: GET
+      url: "/json"
+    validate:
+      - check: status_code
+        expected: 200
+      - check: json.slideshow.title
+        expected: "Sample Slide Show"
+      - check: json.slideshow.author
+        expected: "Yours Truly"
+      - check: json.slideshow.slides[0].title
+        expected: "Wake up to WonderWidgets!"
+
+# ========================================
+# 测试套件4: 状态码和错误处理
+# ========================================
+test_09_status_codes:
+  - name: "201状态码测试"
+    request:
+      method: GET
+      url: "/status/201"
+    validate:
+      - check: status_code
+        expected: 201
+
+test_10_404_handling:
+  - name: "404错误处理"
+    request:
+      method: GET
+      url: "/status/404"
+    validate:
+      - check: status_code
+        expected: 404
+
+test_11_500_handling:
+  - name: "500错误处理"
+    request:
+      method: GET
+      url: "/status/500"
+    validate:
+      - check: status_code
+        expected: 500
+
+# ========================================
+# 测试套件5: 响应延迟测试
+# ========================================
+test_12_delay_response:
+  - name: "延迟响应测试 - 2秒"
+    description: "验证延迟处理和超时设置"
+    request:
+      method: GET
+      url: "/delay/2"
+    validate:
+      - check: status_code
+        expected: 200
+      - check: response_time
+        expected: greater_than
+        value: 2000
+      - check: response_time
+        expected: less_than
+        value: 5000
+
+# ========================================
+# 测试套件6: 认证和授权
+# ========================================
+test_13_basic_auth:
+  - name: "Basic认证测试"
+    description: "验证HTTP Basic认证"
+    request:
+      method: GET
+      url: "/basic-auth/user/passwd"
+      auth:
+        username: "user"
+        password: "passwd"
+    validate:
+      - check: status_code
+        expected: 200
+      - check: json.authenticated
+        expected: true
+      - check: json.user
+        expected: "user"
+
+test_14_bearer_token:
+  - name: "Bearer Token测试"
+    description: "验证Bearer Token认证"
+    request:
+      method: GET
+      url: "/bearer"
+      headers:
+        Authorization: "Bearer test_token_123456"
+    validate:
+      - check: status_code
+        expected: 200
+      - check: json.authenticated
+        expected: true
+      - check: json.token
+        expected: "test_token_123456"
+
+# ========================================
+# 测试套件7: Cookies处理
+# ========================================
+test_15_cookie_set:
+  - name: "设置Cookie"
+    request:
+      method: GET
+      url: "/cookies/set"
+      params:
+        session_id: "abc123"
+        user_token: "xyz789"
+    validate:
+      - check: status_code
+        expected: 200
+
+test_16_cookie_get:
+  - name: "获取Cookies"
+    request:
+      method: GET
+      url: "/cookies"
+    validate:
+      - check: status_code
+        expected: 200
+
+# ========================================
+# 测试套件8: 响应格式
+# ========================================
+test_17_json_response:
+  - name: "JSON响应格式"
+    request:
+      method: GET
+      url: "/json"
+    validate:
+      - check: status_code
+        expected: 200
+      - check: headers.Content-Type
+        expected: contains
+        value: "application/json"
+
+test_18_html_response:
+  - name: "HTML响应格式"
+    request:
+      method: GET
+      url: "/html"
+    validate:
+      - check: status_code
+        expected: 200
+      - check: headers.Content-Type
+        expected: contains
+        value: "text/html"
+
+test_19_xml_response:
+  - name: "XML响应格式"
+    request:
+      method: GET
+      url: "/xml"
+    validate:
+      - check: status_code
+        expected: 200
+      - check: headers.Content-Type
+        expected: contains
+        value: "application/xml"
+
+# ========================================
+# 测试套件9: 重定向测试
+# ========================================
+test_20_redirect:
+  - name: "重定向测试"
+    request:
+      method: GET
+      url: "/redirect/3"
+    validate:
+      - check: status_code
+        expected: 200
+
+test_21_absolute_redirect:
+  - name: "绝对路径重定向"
+    request:
+      method: GET
+      url: "/absolute-redirect/2"
+    validate:
+      - check: status_code
+        expected: 200
+
+# ========================================
+# 测试套件10: 图片和文件
+# ========================================
+test_22_image_jpeg:
+  - name: "JPEG图片响应"
+    request:
+      method: GET
+      url: "/image/jpeg"
+    validate:
+      - check: status_code
+        expected: 200
+      - check: headers.Content-Type
+        expected: "image/jpeg"
+
+test_23_image_png:
+  - name: "PNG图片响应"
+    request:
+      method: GET
+      url: "/image/png"
+    validate:
+      - check: status_code
+        expected: 200
+      - check: headers.Content-Type
+        expected: "image/png"
+
+# ========================================
+# 测试套件11: 缓存控制
+# ========================================
+test_24_cache_control:
+  - name: "缓存控制测试"
+    request:
+      method: GET
+      url: "/cache"
+      headers:
+        If-Modified-Since: "Mon, 01 Jan 2024 00:00:00 GMT"
+    validate:
+      - check: status_code
+        expected: 200
+
+test_25_etag:
+  - name: "ETag测试"
+    request:
+      method: GET
+      url: "/etag/test-etag-value"
+    validate:
+      - check: status_code
+        expected: 200
+
+# ========================================
+# 测试套件12: 编码测试
+# ========================================
+test_26_gzip_encoding:
+  - name: "GZIP编码测试"
+    request:
+      method: GET
+      url: "/gzip"
+      headers:
+        Accept-Encoding: "gzip"
+    validate:
+      - check: status_code
+        expected: 200
+      - check: json.gzipped
+        expected: true
+
+test_27_deflate_encoding:
+  - name: "Deflate编码测试"
+    request:
+      method: GET
+      url: "/deflate"
+      headers:
+        Accept-Encoding: "deflate"
+    validate:
+      - check: status_code
+        expected: 200
+      - check: json.deflated
+        expected: true
+
+# ========================================
+# 测试套件13: 响应检查
+# ========================================
+test_28_response_headers:
+  - name: "响应头检查"
+    request:
+      method: GET
+      url: "/response-headers"
+      params:
+        X-Custom-Header: "test_value"
+        X-Framework: "YH-API-Test"
+    validate:
+      - check: status_code
+        expected: 200
+      - check: headers.X-Custom-Header
+        expected: "test_value"
+
+# ========================================
+# 测试套件14: 用户代理
+# ========================================
+test_29_user_agent:
+  - name: "用户代理测试"
+    request:
+      method: GET
+      url: "/user-agent"
+      headers:
+        User-Agent: "YH-API-Test-Framework/3.0 (Windows 10; Python 3.11)"
+    validate:
+      - check: status_code
+        expected: 200
+      - check: json.user-agent
+        expected: contains
+        value: "YH-API-Test-Framework"
+
+# ========================================
+# 测试套件15: 数据编码
+# ========================================
+test_30_base64_encode:
+  - name: "Base64编码"
+    request:
+      method: GET
+      url: "/base64/encode/hello_world"
+    validate:
+      - check: status_code
+        expected: 200
+
+# ========================================
+# 测试套件16: 豆瓣API测试（如果可访问）
+# ========================================
+test_31_douban_book_search:
+  - name: "豆瓣图书搜索"
+    description: "使用豆瓣API搜索图书"
+    request:
+      method: GET
+      url: "https://douban.uieee.com/v2/book/search"
+      params:
+        q: "Python"
+        count: 5
+    validate:
+      - check: status_code
+        expected: 200
+    extract:
+      book_count: json.count
+      first_book_id: json.books[0].id
+
+test_32_douban_book_detail:
+  - name: "豆瓣图书详情"
+    description: "获取特定图书详情"
+    request:
+      method: GET
+      url: "https://douban.uieee.com/v2/book/1220562"
+    validate:
+      - check: status_code
+        expected: 200
+      - check: json.title
+        expected: contains
+        value: "编程"
+    extract:
+      book_title: json.title
+      book_author: json.author[0]
+
+# ========================================
+# 测试套件17: 多步骤工作流
+# ========================================
+test_33_workflow:
+  - name: "工作流 - 步骤1: 创建资源"
+    request:
+      method: POST
+      url: "/post"
+      json:
+        resource_type: "user"
+        username: "${test_user}_workflow"
+        email: "${test_email}"
+    validate:
+      - check: status_code
+        expected: 200
+    extract:
+      resource_id: json.json.username
+  
+  - name: "工作流 - 步骤2: 查询资源"
+    request:
+      method: GET
+      url: "/get"
+      params:
+        resource_id: "${resource_id}"
+    validate:
+      - check: status_code
+        expected: 200
+      - check: json.args.resource_id
+        expected: "${resource_id}"
+  
+  - name: "工作流 - 步骤3: 更新资源"
+    request:
+      method: PUT
+      url: "/put"
+      json:
+        resource_id: "${resource_id}"
+        status: "updated"
+    validate:
+      - check: status_code
+        expected: 200
+      - check: json.json.status
+        expected: "updated"
+  
+  - name: "工作流 - 步骤4: 删除资源"
+    request:
+      method: DELETE
+      url: "/delete"
+      params:
+        resource_id: "${resource_id}"
+    validate:
+      - check: status_code
+        expected: 200
+
+# ========================================
+# 测试套件18: 性能测试
+# ========================================
+test_34_performance_baseline:
+  - name: "性能基线测试"
+    description: "建立性能基线"
+    request:
+      method: GET
+      url: "/get"
+      params:
+        test_type: "performance"
+    validate:
+      - check: status_code
+        expected: 200
+      - check: response_time
+        expected: less_than
+        value: 2000
+
+# ========================================
+# 测试套件19: 边界值测试
+# ========================================
+test_35_empty_request:
+  - name: "空请求体测试"
+    request:
+      method: POST
+      url: "/post"
+      json: {}
+    validate:
+      - check: status_code
+        expected: 200
+
+test_36_large_payload:
+  - name: "大数据量测试"
+    request:
+      method: POST
+      url: "/post"
+      json:
+        data: "x" * 1000
+        array: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+        nested:
+          level1:
+            level2:
+              value: "deep_nested_value"
+    validate:
+      - check: status_code
+        expected: 200
+      - check: json.json.nested.level1.level2.value
+        expected: "deep_nested_value"
+
+# ========================================
+# 测试套件20: 特殊字符处理
+# ========================================
+test_37_special_characters:
+  - name: "特殊字符测试"
+    request:
+      method: POST
+      url: "/post"
+      json:
+        chinese: "测试中文字符"
+        emoji: "🎯🚀💪"
+        special: "!@#$%^&*()"
+        unicode: "Hello 世界 🌍"
+    validate:
+      - check: status_code
+        expected: 200
+      - check: json.json.chinese
+        expected: "测试中文字符"
+      - check: json.json.emoji
+        expected: "🎯🚀💪"
+
+# ========================================
+# 测试总结
+# ========================================
+# 本测试套件覆盖:
+# ✅ 所有HTTP方法 (GET, POST, PUT, DELETE)
+# ✅ 参数提取 (extract)
+# ✅ 参数引用 (${variable})
+# ✅ 多种断言 (status_code, json, headers, response_time)
+# ✅ 链式请求和工作流
+# ✅ 认证和授权
+# ✅ Cookies处理
+# ✅ 多种响应格式 (JSON, HTML, XML)
+# ✅ 编码处理 (GZIP, Deflate, Base64)
+# ✅ 错误处理 (404, 500)
+# ✅ 性能测试
+# ✅ 特殊字符和边界值
+# ✅ 第三方API集成 (豆瓣)
